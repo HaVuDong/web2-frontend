@@ -1,0 +1,5 @@
+Cập nhật UI/UX và đồng bộ Real-time toàn cầu
+
+- Di chuyển ChipSelect chọn Nhà trọ lên thanh điều hướng chung (top bar) để dễ dàng chuyển đổi nhà trọ từ bất kỳ tab nào mà không cần phải quay lại tab Nhà/Phòng.
+- Nâng cấp hook usePaymentRealtime thành useAppRealtime để lắng nghe sự kiện GLOBAL_UPDATE.
+- Áp dụng kỹ thuật debounce (300ms) để tối ưu hóa hiệu năng khi nhận nhiều sự kiện real-time cùng lúc, tự động làm mới tất cả dữ liệu nền (invalidateQueries).

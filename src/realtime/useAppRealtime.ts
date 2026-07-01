@@ -4,10 +4,11 @@ import { AppState } from "react-native";
 import { API_BASE_URL } from "../api/client";
 import type { PaymentUpdatedData, RealtimeEvent } from "../api/types";
 
-type PaymentRealtimeOptions = {
+type AppRealtimeOptions = {
   enabled: boolean;
   token: string | null;
   onPaymentUpdated: (event: RealtimeEvent<PaymentUpdatedData>) => void;
+  onGlobalUpdate: () => void | Promise<void>;
   onSync: () => void | Promise<void>;
 };
 
@@ -17,18 +18,24 @@ const PING_INTERVAL_MS = 25_000;
 
 export const REALTIME_URL = `${API_BASE_URL.replace(/^http/, "ws").replace(/\/$/, "")}/ws/realtime`;
 
-export function usePaymentRealtime({
+export function useAppRealtime({
   enabled,
   token,
   onPaymentUpdated,
+  onGlobalUpdate,
   onSync,
-}: PaymentRealtimeOptions) {
+}: AppRealtimeOptions) {
   const onPaymentUpdatedRef = useRef(onPaymentUpdated);
+  const onGlobalUpdateRef = useRef(onGlobalUpdate);
   const onSyncRef = useRef(onSync);
 
   useEffect(() => {
     onPaymentUpdatedRef.current = onPaymentUpdated;
   }, [onPaymentUpdated]);
+
+  useEffect(() => {
+    onGlobalUpdateRef.current = onGlobalUpdate;
+  }, [onGlobalUpdate]);
 
   useEffect(() => {
     onSyncRef.current = onSync;
@@ -42,6 +49,7 @@ export function usePaymentRealtime({
     let socket: WebSocket | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let pingTimer: ReturnType<typeof setInterval> | null = null;
+    let debounceGlobalTimer: ReturnType<typeof setTimeout> | null = null;
     let reconnectAttempt = 0;
     let disposed = false;
     let foreground =
@@ -103,7 +111,17 @@ export function usePaymentRealtime({
           }
 
           if (event.type === "PAYMENT_UPDATED" && event.data) {
-            onPaymentUpdatedRef.current(event);
+            onPaymentUpdatedRef.current(event as RealtimeEvent<PaymentUpdatedData>);
+            return;
+          }
+
+          if (event.type === "GLOBAL_UPDATE") {
+            if (debounceGlobalTimer) {
+              clearTimeout(debounceGlobalTimer);
+            }
+            debounceGlobalTimer = setTimeout(() => {
+              void onGlobalUpdateRef.current();
+            }, 300);
           }
         } catch {
           // Ignore malformed or unknown server messages and keep the connection alive.
@@ -146,6 +164,7 @@ export function usePaymentRealtime({
     return () => {
       disposed = true;
       clearTimers();
+      if (debounceGlobalTimer) clearTimeout(debounceGlobalTimer);
       appStateSubscription.remove();
       socket?.close();
     };

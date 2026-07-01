@@ -65,7 +65,7 @@ import type {
   User,
 } from "./api/types";
 import type { PaymentUpdatedData, RealtimeEvent } from "./api/types";
-import { usePaymentRealtime } from "./realtime/usePaymentRealtime";
+import { useAppRealtime } from "./realtime/useAppRealtime";
 import { clearStoredToken, getStoredToken, saveStoredToken } from "./storage/authStorage";
 import { colors, currentMonth, currentYear, formatMoney, spacing } from "./ui/theme";
 
@@ -399,10 +399,15 @@ export default function BoardingHouseApp() {
     [queryClient, syncPaymentQueries],
   );
 
-  usePaymentRealtime({
+  const invalidateAll = async () => {
+    await queryClient.invalidateQueries();
+  };
+
+  useAppRealtime({
     enabled: loggedIn,
     token,
     onPaymentUpdated: handlePaymentUpdated,
+    onGlobalUpdate: invalidateAll,
     onSync: syncPaymentQueries,
   });
 
@@ -423,10 +428,6 @@ export default function BoardingHouseApp() {
 
   const roomName = (roomId?: string) => rooms.find((room) => room.id === roomId)?.roomNumber ?? roomId ?? "-";
   const tenantName = (tenantId?: string) => tenants.find((tenant) => tenant.id === tenantId)?.fullName ?? tenantId ?? "-";
-
-  const invalidateAll = async () => {
-    await queryClient.invalidateQueries();
-  };
 
   const notifyError = (error: unknown) => {
     const message = error instanceof Error ? error.message : String(error);
@@ -1029,6 +1030,20 @@ export default function BoardingHouseApp() {
 
         {notice ? <Notice text={notice} onClose={() => setNotice(null)} /> : null}
 
+        {properties.length > 0 && (
+          <View style={{ paddingHorizontal: isMobile ? spacing.md : spacing.xl, paddingTop: isMobile ? spacing.md : spacing.xl, paddingBottom: 0 }}>
+            <ChipSelect
+              label=""
+              value={selectedPropertyId ?? ""}
+              options={properties.map((p) => ({ label: p.name, value: p.id }))}
+              onChange={(id) => {
+                setNotice(null);
+                setSelectedPropertyId(id);
+              }}
+            />
+          </View>
+        )}
+
         <ScrollView contentContainerStyle={[styles.content, isMobile && styles.mobileContent]}>
           {activeTab === "dashboard" ? (
             <DashboardScreen
@@ -1145,6 +1160,7 @@ export default function BoardingHouseApp() {
               }}
               onMarkLeft={(id) => confirmAction("Khách rời đi", "Xác nhận khách này đã rời đi?", () => markTenantLeftMutation.mutate(id))}
               roomName={roomName}
+              isSavingTenant={createOrUpdateTenantMutation.isPending}
             />
           ) : null}
 
@@ -1184,6 +1200,7 @@ export default function BoardingHouseApp() {
               onRenew={(contract) => renewContractMutation.mutate(contract)}
               roomName={roomName}
               tenantName={tenantName}
+              isSavingContract={createOrUpdateContractMutation.isPending}
             />
           ) : null}
 
@@ -1228,6 +1245,8 @@ export default function BoardingHouseApp() {
               }}
               onDeleteMeter={(id) => confirmAction("Xóa chỉ số", "Bạn có chắc chắn muốn xóa chỉ số điện nước này?", () => deleteMeterMutation.mutate(id))}
               roomName={roomName}
+              isSavingService={updateServicePriceMutation.isPending}
+              isSavingMeter={createOrUpdateMeterMutation.isPending}
             />
           ) : null}
 
@@ -1290,6 +1309,8 @@ export default function BoardingHouseApp() {
               onDeleteMaintenance={(id) => confirmAction("Xóa yêu cầu", "Xác nhận xóa yêu cầu bảo trì này?", () => deleteMaintenanceMutation.mutate(id))}
               roomName={roomName}
               tenantName={tenantName}
+              isGeneratingInvoice={generateInvoiceMutation.isPending}
+              isSavingMaintenance={createOrUpdateMaintenanceMutation.isPending}
             />
           ) : null}
         </ScrollView>
@@ -1541,6 +1562,8 @@ function PropertiesRoomsScreen(props: {
   onDeleteRoom: (id: string) => void;
   onUpdateRoomStatus: (id: string, status: RoomStatus) => void;
   isCompact: boolean;
+  isSavingProperty?: boolean;
+  isSavingRoom?: boolean;
 }) {
   const propertyOptions = props.properties.map((property) => ({ label: property.name, value: property.id }));
   const editingRoomHasActiveContract = Boolean(
@@ -1551,9 +1574,8 @@ function PropertiesRoomsScreen(props: {
   );
 
   return (
-    <View style={styles.stack}>
-      <Card title="Nhà trọ" icon={Building2}>
-        <ChipSelect label="Chọn nhà" value={props.selectedPropertyId} options={propertyOptions} onChange={props.onSelectProperty} />
+    <View style={styles.twoCol}>
+      <Card title="Nhà trọ" icon={Building2} style={styles.colForm}>
         <View style={styles.formGrid}>
           <Field label="Tên nhà trọ" value={props.propertyForm.name} onChangeText={(name) => props.setPropertyForm({ ...props.propertyForm, name })} />
           <Field label="Địa chỉ" value={props.propertyForm.address} onChangeText={(address) => props.setPropertyForm({ ...props.propertyForm, address })} />
@@ -1569,6 +1591,7 @@ function PropertiesRoomsScreen(props: {
             icon={Save}
             onPress={props.onSaveProperty}
             disabled={!props.propertyForm.name.trim() || !props.propertyForm.address.trim()}
+            isLoading={props.isSavingProperty}
           />
           {props.editingPropertyId ? <AppButton label="Hủy" variant="ghost" onPress={props.onCancelPropertyEdit} /> : null}
         </View>
@@ -1589,7 +1612,7 @@ function PropertiesRoomsScreen(props: {
         </View>
       </Card>
 
-      <Card title="Phòng" icon={DoorOpen}>
+      <Card title="Phòng" icon={DoorOpen} style={styles.colList}>
         <View style={styles.formGrid}>
           <Field label="Số phòng" value={props.roomForm.roomNumber} onChangeText={(roomNumber) => props.setRoomForm({ ...props.roomForm, roomNumber })} />
           <Field label="Tầng" value={props.roomForm.floor} keyboardType="numeric" onChangeText={(floor) => props.setRoomForm({ ...props.roomForm, floor })} />
@@ -1626,6 +1649,7 @@ function PropertiesRoomsScreen(props: {
               !Number.isInteger(toNumber(props.roomForm.maxTenants)) ||
               toNumber(props.roomForm.maxTenants) < 1
             }
+            isLoading={props.isSavingRoom}
           />
           {props.editingRoomId ? <AppButton label="Hủy" variant="ghost" onPress={props.onCancelRoomEdit} /> : null}
         </View>
@@ -1665,6 +1689,7 @@ function TenantsScreen(props: {
   onCancel: () => void;
   onMarkLeft: (id: string) => void;
   roomName: (roomId?: string) => string;
+  isSavingTenant?: boolean;
 }) {
   const roomOptions = [{ label: "Chưa gắn phòng", value: "" }, ...props.rooms.map((room) => ({ label: room.roomNumber, value: room.id }))];
   const editingTenant = props.tenants.find((tenant) => tenant.id === props.editingTenantId);
@@ -1676,8 +1701,8 @@ function TenantsScreen(props: {
   );
 
   return (
-    <View style={styles.stack}>
-      <Card title={props.editingTenantId ? "Sửa khách thuê" : "Thêm khách thuê"} icon={UserRound}>
+    <View style={styles.twoCol}>
+      <Card title={props.editingTenantId ? "Sửa khách thuê" : "Thêm khách thuê"} icon={UserRound} style={styles.colForm}>
         <View style={styles.formGrid}>
           <Field label="Họ tên" value={props.form.fullName} onChangeText={(fullName) => props.setForm({ ...props.form, fullName })} />
           <Field label="Số điện thoại" value={props.form.phone} keyboardType="phone-pad" onChangeText={(phone) => props.setForm({ ...props.form, phone })} />
@@ -1714,11 +1739,12 @@ function TenantsScreen(props: {
             icon={Save}
             onPress={props.onSave}
             disabled={!props.form.fullName.trim() || !props.form.phone.trim()}
+            isLoading={props.isSavingTenant}
           />
           {props.editingTenantId ? <AppButton label="Hủy" variant="ghost" onPress={props.onCancel} /> : null}
         </View>
       </Card>
-      <Card title="Danh sách khách thuê" icon={Users}>
+      <Card title="Danh sách khách thuê" icon={Users} style={styles.colList}>
         <View style={styles.filterRow}>
           <View style={styles.searchBox}>
             <Search color={colors.faint} size={17} />
@@ -1784,6 +1810,7 @@ function ContractsScreen(props: {
   onRenew: (contract: Contract) => void;
   roomName: (roomId?: string) => string;
   tenantName: (tenantId?: string) => string;
+  isSavingContract?: boolean;
 }) {
   const roomOptions = props.availableRooms.map((room) => ({
     label: `${room.roomNumber} · ${statusLabel(room.status)}`,
@@ -1801,8 +1828,8 @@ function ContractsScreen(props: {
     .map((tenant) => ({ label: tenant.fullName, value: tenant.id }));
 
   return (
-    <View style={styles.stack}>
-      <Card title={props.editingContractId ? "Sửa hợp đồng" : "Tạo hợp đồng"} icon={FileText}>
+    <View style={styles.twoCol}>
+      <Card title={props.editingContractId ? "Sửa hợp đồng" : "Tạo hợp đồng"} icon={FileText} style={styles.colForm}>
         <ChipSelect
           label="Phòng"
           value={props.form.roomId}
@@ -1839,11 +1866,12 @@ function ContractsScreen(props: {
               !props.form.deposit ||
               !props.form.paymentDueDay
             }
+            isLoading={props.isSavingContract}
           />
           {props.editingContractId ? <AppButton label="Hủy" variant="ghost" onPress={props.onCancel} /> : null}
         </View>
       </Card>
-      <Card title="Danh sách hợp đồng" icon={ClipboardList}>
+      <Card title="Danh sách hợp đồng" icon={ClipboardList} style={styles.colList}>
         {props.contracts.map((contract) => (
           <DataRow
             key={contract.id}
@@ -1886,6 +1914,8 @@ function ServicesMeterScreen(props: {
   onCancelMeter: () => void;
   onDeleteMeter: (id: string) => void;
   roomName: (roomId?: string) => string;
+  isSavingService?: boolean;
+  isSavingMeter?: boolean;
 }) {
   const roomOptions = props.rooms.map((room) => ({ label: room.roomNumber, value: room.id }));
   const meterMonth = toNumber(props.meterForm.month);
@@ -1911,8 +1941,9 @@ function ServicesMeterScreen(props: {
     );
 
   return (
-    <View style={styles.stack}>
-      <Card title={`Giá dịch vụ · ${props.selectedProperty?.name ?? ""}`} icon={Settings}>
+    <View style={styles.twoCol}>
+      <View style={[styles.stack, styles.colForm]}>
+        <Card title={`Giá dịch vụ · ${props.selectedProperty?.name ?? ""}`} icon={Settings}>
         <View style={styles.metricGrid}>
           <MetricCard icon={Bolt} label="Điện" value={`${props.servicePrice?.electricityPrice ?? 0}/kWh`} tone="amber" small />
           <MetricCard icon={Banknote} label="Nước" value={`${props.servicePrice?.waterPrice ?? 0}/m3`} tone="blue" small />
@@ -1935,6 +1966,7 @@ function ServicesMeterScreen(props: {
               !props.selectedProperty ||
               !areNonNegativeNumberStrings(Object.values(props.serviceForm))
             }
+            isLoading={props.isSavingService}
           />
         </View>
       </Card>
@@ -1982,12 +2014,14 @@ function ServicesMeterScreen(props: {
             icon={Save}
             onPress={props.onSaveMeter}
             disabled={!meterFormValid}
+            isLoading={props.isSavingMeter}
           />
           {props.editingMeterId ? <AppButton label="Hủy" variant="ghost" onPress={props.onCancelMeter} /> : null}
         </View>
       </Card>
+      </View>
 
-      <Card title="Lịch sử chỉ số" icon={ClipboardList}>
+      <Card title="Lịch sử chỉ số" icon={ClipboardList} style={styles.colList}>
         {props.meterReadings.slice(0, 20).map((reading) => {
           const hasPaidInvoice = props.invoices.some(
             (invoice) =>
@@ -2048,6 +2082,8 @@ function BillingMaintenanceScreen(props: {
   onDeleteMaintenance: (id: string) => void;
   roomName: (roomId?: string) => string;
   tenantName: (tenantId?: string) => string;
+  isGeneratingInvoice?: boolean;
+  isSavingMaintenance?: boolean;
 }) {
   const occupiedRoomOptions = props.rooms
     .filter((room) => room.status === "OCCUPIED")
@@ -2089,8 +2125,8 @@ function BillingMaintenanceScreen(props: {
       </View>
 
       {props.mode === "invoices" ? (
-        <>
-          <Card title="Tạo hóa đơn" icon={Receipt}>
+        <View style={styles.twoCol}>
+          <Card title="Tạo hóa đơn" icon={Receipt} style={styles.colForm}>
             <ChipSelect label="Phòng" value={props.invoiceForm.roomId} options={occupiedRoomOptions} onChange={(roomId) => props.setInvoiceForm({ ...props.invoiceForm, roomId })} />
             <View style={styles.formGrid}>
               <Field label="Tháng" value={props.invoiceForm.month} keyboardType="numeric" onChangeText={(month) => props.setInvoiceForm({ ...props.invoiceForm, month })} />
@@ -2111,6 +2147,7 @@ function BillingMaintenanceScreen(props: {
                     props.invoiceForm.discountAmount,
                   ])
                 }
+                isLoading={props.isGeneratingInvoice}
               />
               <AppButton
                 label={props.isGeneratingMonthly ? "Đang tạo..." : "Tạo hàng loạt"}
@@ -2121,7 +2158,7 @@ function BillingMaintenanceScreen(props: {
               />
             </View>
           </Card>
-          <Card title="Danh sách hóa đơn" icon={Receipt}>
+          <Card title="Danh sách hóa đơn" icon={Receipt} style={styles.colList}>
             {props.invoices.map((invoice) => (
               <DataRow
                 key={invoice.id}
@@ -2147,10 +2184,10 @@ function BillingMaintenanceScreen(props: {
             ))}
             {props.invoices.length === 0 ? <Empty text="Chưa có hóa đơn." /> : null}
           </Card>
-        </>
+        </View>
       ) : (
-        <>
-          <Card title={props.editingMaintenanceId ? "Sửa yêu cầu bảo trì" : "Tạo yêu cầu bảo trì"} icon={Wrench}>
+        <View style={styles.twoCol}>
+          <Card title={props.editingMaintenanceId ? "Sửa yêu cầu bảo trì" : "Tạo yêu cầu bảo trì"} icon={Wrench} style={styles.colForm}>
             <ChipSelect
               label="Phòng"
               value={props.maintenanceForm.roomId}
@@ -2175,11 +2212,12 @@ function BillingMaintenanceScreen(props: {
                 icon={Save}
                 onPress={props.onSaveMaintenance}
                 disabled={!props.maintenanceForm.roomId || !props.maintenanceForm.title.trim()}
+                isLoading={props.isSavingMaintenance}
               />
               {props.editingMaintenanceId ? <AppButton label="Hủy" variant="ghost" onPress={props.onCancelMaintenance} /> : null}
             </View>
           </Card>
-          <Card title="Danh sách bảo trì" icon={Wrench}>
+          <Card title="Danh sách bảo trì" icon={Wrench} style={styles.colList}>
             <ChipSelect
               label="Lọc trạng thái"
               value={props.maintenanceStatus}
@@ -2213,7 +2251,7 @@ function BillingMaintenanceScreen(props: {
             ))}
             {props.maintenanceRequests.length === 0 ? <Empty text="Chưa có yêu cầu bảo trì." /> : null}
           </Card>
-        </>
+        </View>
       )}
     </View>
   );
@@ -2329,9 +2367,9 @@ function MetricCard({
   );
 }
 
-function Card({ title, icon: Icon, children }: { title: string; icon: IconComponent; children: React.ReactNode }) {
+function Card({ title, icon: Icon, children, style }: { title: string; icon: IconComponent; children: React.ReactNode; style?: any }) {
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, style]}>
       <View style={styles.cardHeader}>
         <View style={styles.cardTitleWrap}>
           <Icon color={colors.purple} size={18} />
@@ -2477,6 +2515,7 @@ function AppButton({
   variant = "primary",
   disabled,
   full,
+  isLoading,
 }: {
   label: string;
   onPress: () => void;
@@ -2484,15 +2523,29 @@ function AppButton({
   variant?: "primary" | "secondary" | "ghost";
   disabled?: boolean;
   full?: boolean;
+  isLoading?: boolean;
 }) {
+  const isDisabled = disabled || isLoading;
   return (
     <Pressable
-      style={[styles.button, styles[`button_${variant}`], full && styles.buttonFull, disabled && styles.disabled]}
+      style={[
+        styles.button, 
+        styles[`button_${variant}`], 
+        full && styles.buttonFull, 
+        isDisabled && styles.disabled,
+        isDisabled && variant === "primary" && { backgroundColor: "rgba(148, 163, 184, 0.1)", borderColor: "rgba(148, 163, 184, 0.2)" }
+      ]}
       onPress={onPress}
-      disabled={disabled}
+      disabled={isDisabled}
     >
-      {Icon ? <Icon color={variant === "primary" ? "#fff" : colors.muted} size={16} /> : null}
-      <Text style={[styles.buttonText, variant === "primary" && styles.buttonTextPrimary]}>{label}</Text>
+      {isLoading ? (
+        <ActivityIndicator size="small" color={isDisabled ? colors.faint : (variant === "primary" ? "#fff" : colors.muted)} />
+      ) : Icon ? (
+        <Icon color={isDisabled ? colors.faint : (variant === "primary" ? "#fff" : colors.muted)} size={16} />
+      ) : null}
+      <Text style={[styles.buttonText, variant === "primary" && !isDisabled && styles.buttonTextPrimary, isDisabled && { color: colors.faint }]}>
+        {isLoading ? "Đang xử lý..." : label}
+      </Text>
     </Pressable>
   );
 }
@@ -2802,11 +2855,20 @@ const styles = StyleSheet.create({
     gap: spacing.lg,
   },
   twoCol: {
-    flexDirection: Platform.OS === "web" ? "row" : "column",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "flex-start",
     gap: spacing.lg,
   },
-  twoColMobile: {
-    flexDirection: "column",
+  colForm: {
+    flexGrow: 1,
+    flexShrink: 1,
+    minWidth: 320,
+  },
+  colList: {
+    flexGrow: 2,
+    flexShrink: 1,
+    minWidth: 320,
   },
   metricGrid: {
     flexDirection: "row",
@@ -2858,7 +2920,6 @@ const styles = StyleSheet.create({
     fontSize: 18,
   },
   card: {
-    flex: 1,
     padding: spacing.lg,
     borderRadius: 16,
     borderWidth: 1,
@@ -2884,7 +2945,7 @@ const styles = StyleSheet.create({
   },
   miniCard: {
     minWidth: 220,
-    flex: 1,
+    flexGrow: 1,
     padding: spacing.md,
     borderRadius: 10,
     borderWidth: 1,
@@ -2910,7 +2971,7 @@ const styles = StyleSheet.create({
   },
   roomTile: {
     minWidth: 180,
-    flex: 1,
+    flexGrow: 1,
     padding: spacing.md,
     borderRadius: 10,
     borderWidth: 1,
@@ -2989,9 +3050,10 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   fieldWrap: {
-    flex: 1,
+    flexGrow: 1,
     minWidth: 180,
     gap: 6,
+    marginBottom: spacing.md,
   },
   fieldWrapFull: {
     flex: 0,
@@ -3038,7 +3100,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     minWidth: 220,
-    flex: 1,
+    flexGrow: 1,
     minHeight: 42,
     borderRadius: 9,
     borderWidth: 1,
@@ -3069,6 +3131,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.bg,
+    marginRight: spacing.sm,
   },
   chipActive: {
     backgroundColor: colors.primarySoft,
