@@ -1033,7 +1033,7 @@ export default function BoardingHouseApp() {
         {properties.length > 0 && (
           <View style={{ paddingHorizontal: isMobile ? spacing.md : spacing.xl, paddingTop: isMobile ? spacing.md : spacing.xl, paddingBottom: 0 }}>
             <ChipSelect
-              label=""
+              label="🏠 Nhà trọ đang quản lý:"
               value={selectedPropertyId ?? ""}
               options={properties.map((p) => ({ label: p.name, value: p.id }))}
               onChange={(id) => {
@@ -2677,10 +2677,16 @@ function isValidMonthYear(month: number, year: number) {
 }
 
 function areNonNegativeNumberStrings(values: string[]) {
-  return values.every((value) => value.trim() !== "" && Number.isFinite(Number(value)) && Number(value) >= 0);
+  return values.every((value) => {
+    const v = value.trim() === "" ? 0 : Number(value.replace(/,/g, ""));
+    return Number.isFinite(v) && v >= 0;
+  });
 }
 
 function toNumber(value: string | number | undefined) {
+  if (typeof value === "string") {
+    value = value.replace(/,/g, "");
+  }
   const parsed = Number(value ?? 0);
   return Number.isFinite(parsed) ? parsed : 0;
 }
