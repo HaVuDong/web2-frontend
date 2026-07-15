@@ -446,8 +446,8 @@ export default function BoardingHouseApp() {
       const otherFees = toNumber(invoiceForm.otherFees); const discountAmount = toNumber(invoiceForm.discountAmount);
       if (!isValidMonthYear(month, year)) throw new Error("Tháng phải từ 1-12 và năm từ 2000-2100.");
       if (otherFees < 0 || discountAmount < 0) throw new Error("Phí khác và giảm giá không được âm.");
-      if (invoices.some((inv) => inv.roomId === roomId && inv.month === month && inv.year === year))
-        throw new Error("Phòng đã có hóa đơn trong tháng này.");
+      if (invoices.some((inv) => inv.roomId === roomId && inv.month === month && inv.year === year && inv.status !== "CANCELLED"))
+        throw new Error("Phòng đã có hóa đơn hoạt động trong tháng này.");
       if (!meterReadings.some((r) => r.roomId === roomId && r.month === month && r.year === year))
         throw new Error("Chưa có chỉ số điện nước của phòng trong tháng này.");
       if (!contracts.some((c) => c.roomId === roomId && c.status === "ACTIVE"))
@@ -464,7 +464,8 @@ export default function BoardingHouseApp() {
       if (!selectedProperty?.id) throw new Error("Chưa chọn nhà trọ.");
       const month = toNumber(invoiceForm.month); const year = toNumber(invoiceForm.year);
       if (!isValidMonthYear(month, year)) throw new Error("Tháng phải từ 1-12 và năm từ 2000-2100.");
-      if (occupiedRooms.length === 0) throw new Error("Nhà trọ chưa có phòng đang thuê để tạo hóa đơn.");
+      const occupiedCount = rooms.filter(r => r.status === "OCCUPIED").length;
+      if (occupiedCount === 0) throw new Error("Nhà trọ chưa có phòng đang thuê để tạo hóa đơn.");
       return api.generateMonthlyInvoices({ propertyId: selectedProperty.id, month, year });
     },
     onSuccess: async (result) => {
