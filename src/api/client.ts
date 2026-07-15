@@ -109,6 +109,13 @@ export const api = {
     apiRequest<Tenant>(`/api/tenants/${id}`, { method: "PUT", body }),
   markTenantLeft: (id: string) => apiRequest<void>(`/api/tenants/${id}`, { method: "DELETE" }),
   tenantsByRoom: (roomId: string) => apiRequest<Tenant[]>(`/api/rooms/${roomId}/tenants`),
+  generateAndSendInvite: (id: string) => apiRequest<void>(`/api/tenants/${id}/invite`, { method: "POST" }),
+
+  tenantMe: () => apiRequest<Tenant>("/api/tenant/me"),
+  tenantInvoices: () => apiRequest<Invoice[]>("/api/tenant/invoices"),
+  tenantRentalInfo: () => apiRequest<{ room: Room | null, property: Property | null }>("/api/tenant/rental-info"),
+  changePassword: (body: { oldPassword?: string; newPassword?: string }) => 
+    apiRequest<void>("/api/tenant/password", { method: "PUT", body }),
 
   contracts: () => apiRequest<Contract[]>("/api/contracts"),
   createContract: (body: Partial<Contract>) => apiRequest<Contract>("/api/contracts", { method: "POST", body }),
@@ -118,6 +125,10 @@ export const api = {
     apiRequest<Contract>(`/api/contracts/${id}/terminate`, { method: "PATCH", body }),
   renewContract: (id: string, body: { newEndDate: string; monthlyRent?: number; deposit?: number; paymentDueDay?: number; note?: string }) =>
     apiRequest<Contract>(`/api/contracts/${id}/renew`, { method: "PATCH", body }),
+  switchRoom: (id: string, body: { newRoomId: string; note?: string }) =>
+    apiRequest<Contract>(`/api/contracts/${id}/switch-room`, { method: "PATCH", body }),
+  updateContractTenants: (id: string, body: { tenantIds: string[] }) =>
+    apiRequest<Contract>(`/api/contracts/${id}/tenants`, { method: "PATCH", body }),
 
   servicePrice: (propertyId: string) => apiRequest<ServicePrice>(`/api/properties/${propertyId}/service-prices`),
   updateServicePrice: (propertyId: string, body: Partial<ServicePrice>) =>

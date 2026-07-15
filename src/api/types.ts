@@ -9,7 +9,7 @@ export type User = {
   id?: string;
   email: string;
   name: string;
-  role: "OWNER";
+  role: "OWNER" | "TENANT";
   active?: boolean;
 };
 
@@ -18,7 +18,7 @@ export type JwtResponse = {
   type: "Bearer";
   email: string;
   name: string;
-  role: "OWNER";
+  role: "OWNER" | "TENANT";
 };
 
 export type RoomStatus = "AVAILABLE" | "OCCUPIED" | "RESERVED" | "MAINTENANCE";
