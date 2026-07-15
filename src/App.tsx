@@ -226,7 +226,7 @@ export default function BoardingHouseApp() {
   const tenantMeQuery = useQuery({ queryKey: ["tenant-me"], queryFn: api.tenantMe, enabled: loggedIn && user?.role === "TENANT" });
   const tenantInvoicesQuery = useQuery({ queryKey: ["tenant-invoices"], queryFn: api.tenantInvoices, enabled: loggedIn && user?.role === "TENANT" });
   const tenantRentalInfoQuery = useQuery({ queryKey: ["tenant-rental-info"], queryFn: api.tenantRentalInfo, enabled: loggedIn && user?.role === "TENANT" });
-
+  const tenantMeterReadingsQuery = useQuery({ queryKey: ["tenant-meter-readings"], queryFn: api.tenantMeterReadings, enabled: loggedIn && user?.role === "TENANT" });
   const syncPaymentQueries = useCallback(() => {
     return Promise.all([
       queryClient.invalidateQueries({ queryKey: ["invoices"] }),
@@ -490,6 +490,12 @@ export default function BoardingHouseApp() {
     onError: notifyError,
   });
 
+  const submitTenantMeterMutation = useMutation({
+    mutationFn: (body: { month: number; year: number; electricityNew: number; waterNew: number; note?: string }) => api.submitTenantMeterReading(body),
+    onSuccess: async () => { setNotice("Đã gửi chỉ số thành công."); await invalidateAll(); },
+    onError: notifyError,
+  });
+
   const invoiceStatusMutation = useMutation({
     mutationFn: ({ id, action }: { id: string; action: "paid" | "cancel" }) =>
       action === "paid" ? api.markInvoicePaid(id) : api.cancelInvoice(id),
@@ -604,6 +610,7 @@ export default function BoardingHouseApp() {
             <TenantDashboardScreen
               tenant={tenantMeQuery.data}
               invoices={tenantInvoicesQuery.data ?? []}
+              meterReadings={tenantMeterReadingsQuery.data ?? []}
               rentalInfo={tenantRentalInfoQuery.data}
               isMobile={isMobile}
               onPay={(id) =>
@@ -614,6 +621,10 @@ export default function BoardingHouseApp() {
               }
               onChangePassword={(oldPw, newPw) => changePasswordMutation.mutate({ oldPassword: oldPw, newPassword: newPw })}
               isChangingPassword={changePasswordMutation.isPending}
+              onSubmitMeterReading={(month, year, electricityNew, waterNew, note) =>
+                submitTenantMeterMutation.mutate({ month, year, electricityNew, waterNew, note })
+              }
+              isSubmittingMeterReading={submitTenantMeterMutation.isPending}
             />
           ) : activeTab === "dashboard" ? (
             <DashboardScreen

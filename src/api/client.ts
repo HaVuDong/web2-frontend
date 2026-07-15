@@ -114,6 +114,9 @@ export const api = {
   tenantMe: () => apiRequest<Tenant>("/api/tenant/me"),
   tenantInvoices: () => apiRequest<Invoice[]>("/api/tenant/invoices"),
   tenantRentalInfo: () => apiRequest<{ room: Room | null, property: Property | null }>("/api/tenant/rental-info"),
+  tenantMeterReadings: () => apiRequest<MeterReading[]>("/api/tenant/meter-readings"),
+  submitTenantMeterReading: (body: { month: number; year: number; electricityNew: number; waterNew: number; note?: string }) =>
+    apiRequest<MeterReading>("/api/tenant/meter-readings", { method: "POST", body }),
   changePassword: (body: { oldPassword?: string; newPassword?: string }) => 
     apiRequest<void>("/api/tenant/password", { method: "PUT", body }),
 
@@ -155,8 +158,15 @@ export const api = {
   cancelInvoice: (id: string) => apiRequest<Invoice>(`/api/invoices/${id}/cancel`, { method: "PATCH" }),
   roomInvoices: (roomId: string) => apiRequest<Invoice[]>(`/api/rooms/${roomId}/invoices`),
 
-  createPaymentLink: (invoiceId: string, idempotencyKey?: string) =>
-    apiRequest<PaymentLinkResponse>(`/api/invoices/${invoiceId}/payment-link`, { method: "POST", idempotencyKey }),
+  createPaymentLink: (invoiceId: string, idempotencyKey: string) => {
+    let url = `/api/invoices/${invoiceId}/payment-link`;
+    if (typeof window !== "undefined") {
+      const returnUrl = encodeURIComponent(window.location.origin + "/payment-success");
+      const cancelUrl = encodeURIComponent(window.location.origin + "/payment-cancel");
+      url += `?returnUrl=${returnUrl}&cancelUrl=${cancelUrl}`;
+    }
+    return apiRequest<PaymentLinkResponse>(url, { method: "POST", idempotencyKey });
+  },
   payment: (id: string) => apiRequest<Payment>(`/api/payments/${id}`),
   invoicePayments: (invoiceId: string) => apiRequest<Payment[]>(`/api/invoices/${invoiceId}/payments`),
 

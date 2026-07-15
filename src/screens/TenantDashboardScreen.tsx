@@ -1,19 +1,21 @@
-import React, { useState } from "react";
-import { StyleSheet, Text, View, Modal, Pressable } from "react-native";
+import React, { useState, useEffect } from "react";
+import { StyleSheet, Text, View, Modal } from "react-native";
 import { AppButton, Badge, Card, DataRow, Empty, Field, IconButton } from "../ui/components";
-import { colors, spacing, radius, glass, shadows } from "../ui/theme";
-import type { Invoice, Tenant } from "../api/types";
-import { Receipt, UserRound, KeyRound, X } from "lucide-react-native";
-import { formatMoney } from "../ui/theme";
+import { colors, spacing, radius, glass, shadows, formatMoney } from "../ui/theme";
+import type { Invoice, Tenant, MeterReading } from "../api/types";
+import { Receipt, UserRound, KeyRound, X, Bolt, ClipboardList } from "lucide-react-native";
 
 export function TenantDashboardScreen(props: {
   tenant: Tenant | undefined;
   invoices: Invoice[];
+  meterReadings: MeterReading[];
   rentalInfo?: { room: any; property: any };
   isMobile: boolean;
   onPay: (invoiceId: string) => void;
   onChangePassword: (oldPw: string, newPw: string) => void;
   isChangingPassword?: boolean;
+  onSubmitMeterReading: (month: number, year: number, electricityNew: number, waterNew: number, note?: string) => void;
+  isSubmittingMeterReading?: boolean;
 }) {
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [oldPassword, setOldPassword] = useState("");
@@ -21,10 +23,44 @@ export function TenantDashboardScreen(props: {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [passwordError, setPasswordError] = useState("");
 
+  const [electricityNew, setElectricityNew] = useState("");
+  const [waterNew, setWaterNew] = useState("");
+  const [meterNote, setMeterNote] = useState("");
+
   if (!props.tenant) return <Empty text="Đang tải dữ liệu..." />;
 
   const unpaidInvoices = props.invoices.filter((i) => i.status === "UNPAID" || i.status === "OVERDUE");
   const paidInvoices = props.invoices.filter((i) => i.status === "PAID");
+
+  const today = new Date();
+  const currentMonth = today.getMonth() + 1;
+  const currentYear = today.getFullYear();
+  const isPastDeadline = today.getDate() > 5;
+
+  const currentMonthReading = props.meterReadings.find(
+    (r) => r.month === currentMonth && r.year === currentYear
+  );
+
+  let prevMonth = currentMonth - 1;
+  let prevYear = currentYear;
+  if (prevMonth === 0) {
+    prevMonth = 12;
+    prevYear -= 1;
+  }
+  const prevReading = props.meterReadings.find(
+    (r) => r.month === prevMonth && r.year === prevYear
+  );
+
+  const electricityOld = prevReading?.electricityNew ?? 0;
+  const waterOld = prevReading?.waterNew ?? 0;
+
+  const electricityNewNum = Number(electricityNew.replace(/,/g, ""));
+  const waterNewNum = Number(waterNew.replace(/,/g, ""));
+
+  const isMeterValid = 
+    !isNaN(electricityNewNum) && !isNaN(waterNewNum) &&
+    electricityNewNum >= electricityOld && waterNewNum >= waterOld &&
+    electricityNew.trim() !== "" && waterNew.trim() !== "";
 
   const handleSavePassword = () => {
     if (newPassword !== confirmPassword) {
@@ -37,6 +73,13 @@ export function TenantDashboardScreen(props: {
     setNewPassword("");
     setConfirmPassword("");
     setShowPasswordModal(false);
+  };
+
+  const handleSubmitMeter = () => {
+    props.onSubmitMeterReading(currentMonth, currentYear, electricityNewNum, waterNewNum, meterNote);
+    setElectricityNew("");
+    setWaterNew("");
+    setMeterNote("");
   };
 
   return (
@@ -62,6 +105,49 @@ export function TenantDashboardScreen(props: {
         </View>
       </Card>
 
+      <Card title={`Ghi chỉ số tháng ${currentMonth}/${currentYear}`} icon={Bolt} style={styles.col}>
+        {currentMonthReading ? (
+          <View style={styles.successBox}>
+            <Text style={styles.successText}>Bạn đã gửi chỉ số cho tháng này!</Text>
+            <Text style={styles.detailText}>Điện: {currentMonthReading.electricityOld} → {currentMonthReading.electricityNew}</Text>
+            <Text style={styles.detailText}>Nước: {currentMonthReading.waterOld} → {currentMonthReading.waterNew}</Text>
+            {currentMonthReading.submittedByTenantId && <Text style={styles.subDetailText}>(Bạn tự nhập)</Text>}
+          </View>
+        ) : isPastDeadline ? (
+          <View style={styles.warningBox}>
+            <Text style={styles.warningText}>Đã quá hạn ngày 5 để tự nhập chỉ số.</Text>
+            <Text style={styles.detailText}>Chủ trọ sẽ trực tiếp nhập chỉ số tháng này cho bạn.</Text>
+          </View>
+        ) : (
+          <View style={{ gap: spacing.md }}>
+            <View style={styles.infoBox}>
+              <Text style={styles.infoText}>Hạn chót nhập: Ngày 5 hàng tháng</Text>
+              <Text style={styles.detailText}>Số cũ sẽ được tự động lấy từ tháng trước.</Text>
+            </View>
+            <View style={styles.formGrid}>
+              <View style={styles.fieldWrap}>
+                <Text style={styles.label}>Điện cũ</Text>
+                <Text style={styles.valueText}>{electricityOld}</Text>
+              </View>
+              <Field label="Điện mới" value={electricityNew} onChangeText={setElectricityNew} keyboardType="numeric" />
+              <View style={styles.fieldWrap}>
+                <Text style={styles.label}>Nước cũ</Text>
+                <Text style={styles.valueText}>{waterOld}</Text>
+              </View>
+              <Field label="Nước mới" value={waterNew} onChangeText={setWaterNew} keyboardType="numeric" />
+            </View>
+            <Field fullWidth label="Ghi chú (Tùy chọn)" value={meterNote} onChangeText={setMeterNote} />
+            <AppButton 
+              label="Gửi chỉ số" 
+              icon={Bolt} 
+              onPress={handleSubmitMeter} 
+              disabled={!isMeterValid} 
+              isLoading={props.isSubmittingMeterReading}
+            />
+          </View>
+        )}
+      </Card>
+
       <Card title="Hóa đơn cần thanh toán" icon={Receipt} style={styles.col}>
         {unpaidInvoices.length === 0 ? <Empty text="Bạn không có hóa đơn nào cần thanh toán." /> : null}
         {unpaidInvoices.map((inv) => (
@@ -77,7 +163,7 @@ export function TenantDashboardScreen(props: {
         ))}
       </Card>
       
-      <Card title="Lịch sử hóa đơn" icon={Receipt} style={styles.fullRow}>
+      <Card title="Lịch sử hóa đơn" icon={Receipt} style={styles.col}>
         {paidInvoices.length === 0 ? <Empty text="Chưa có lịch sử thanh toán." /> : null}
         {paidInvoices.map((inv) => (
           <DataRow
@@ -87,6 +173,20 @@ export function TenantDashboardScreen(props: {
             right={formatMoney(inv.totalAmount)}
             badge="ĐÃ THANH TOÁN"
             badgeTone="green"
+          />
+        ))}
+      </Card>
+
+      <Card title="Lịch sử chỉ số" icon={ClipboardList} style={styles.fullRow}>
+        {props.meterReadings.length === 0 ? <Empty text="Chưa có lịch sử chỉ số." /> : null}
+        {props.meterReadings.map((r) => (
+          <DataRow
+            key={r.id}
+            title={`Tháng ${r.month}/${r.year}`}
+            subtitle={`Điện: ${r.electricityOld} → ${r.electricityNew} | Nước: ${r.waterOld} → ${r.waterNew}`}
+            right={r.submittedByTenantId ? "Khách tự nhập" : "Chủ trọ nhập"}
+            badge={r.submittedByTenantId ? "TENANT" : "OWNER"}
+            badgeTone={r.submittedByTenantId ? "blue" : "gray"}
           />
         ))}
       </Card>
@@ -121,4 +221,22 @@ const styles = StyleSheet.create({
   modalHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   modalTitle: { color: colors.text, fontSize: 18, fontWeight: "700" },
   modalActions: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: spacing.sm, marginTop: spacing.md },
+  
+  formGrid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.md },
+  fieldWrap: { flex: 1, minWidth: 100, backgroundColor: colors.bg, padding: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border },
+  label: { fontSize: 12, color: colors.faint, marginBottom: 4 },
+  valueText: { fontSize: 16, color: colors.text, fontWeight: "600" },
+  
+  infoBox: { backgroundColor: "rgba(59,130,246,0.1)", padding: spacing.md, borderRadius: radius.md, borderLeftWidth: 3, borderLeftColor: "#3b82f6" },
+  infoText: { color: "#3b82f6", fontWeight: "bold", fontSize: 14 },
+  
+  warningBox: { backgroundColor: "rgba(245,158,11,0.1)", padding: spacing.md, borderRadius: radius.md, borderLeftWidth: 3, borderLeftColor: "#f59e0b" },
+  warningText: { color: "#b45309", fontWeight: "bold", fontSize: 14 },
+  
+  successBox: { backgroundColor: "rgba(34,197,94,0.1)", padding: spacing.md, borderRadius: radius.md, borderLeftWidth: 3, borderLeftColor: "#22c55e", gap: 4 },
+  successText: { color: "#15803d", fontWeight: "bold", fontSize: 14 },
+  
+  detailText: { color: colors.muted, fontSize: 13, marginTop: 4 },
+  subDetailText: { color: colors.faint, fontSize: 12, fontStyle: "italic" },
 } as any);
+

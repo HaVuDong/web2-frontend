@@ -117,6 +117,7 @@ export type MeterReading = {
   waterOld: number;
   waterNew: number;
   note?: string;
+  submittedByTenantId?: string;
   createdAt?: string;
   updatedAt?: string;
   version?: number;
